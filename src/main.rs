@@ -2,6 +2,7 @@ use std::usize;
 
 static STACK_CAPACITY: usize = 1024;
 static PROGRAM_CAPACITY: usize = 1024;
+static EXECUTION_LIMIT: usize = 69;
 
 enum Trap {
     StackOverFlow,
@@ -49,9 +50,13 @@ enum InstType {
     InstMinus,
     InstMult,
     InstDiv,
+    InstDup,
     InstJmp,
+    InstJmpIf,
+    InstEq,
     InstHalt,
     InstDump,
+    InstPrintDebug,
 }
 
 #[derive(Clone)]
@@ -124,6 +129,38 @@ fn inst_halt() -> Inst {
     return inst;
 }
 
+fn inst_jmp_if(operand: Word) -> Inst {
+    let inst = Inst {
+        ins_t: InstType::InstJmpIf,
+        operand
+    };
+    return inst;
+}
+
+fn inst_eq() -> Inst {
+    let inst = Inst {
+        ins_t: InstType::InstHalt,
+        operand: 0,
+    };
+    return inst;
+}
+
+fn inst_print_debug() -> Inst {
+    let inst = Inst {
+        ins_t: InstType::InstPrintDebug,
+        operand: 0,
+    };
+    return inst;
+}
+
+fn inst_dup(operand: Word) -> Inst {
+    let inst = Inst {
+        ins_t: InstType::InstDup,
+        operand
+    };
+    return inst;
+}
+
 fn art_exec_inst(art: &mut Articuno,  inst: &Inst) -> Trap {
     match inst.ins_t {
         InstType::InstPlus => {
@@ -179,9 +216,56 @@ fn art_exec_inst(art: &mut Articuno,  inst: &Inst) -> Trap {
         InstType::InstJmp => {
             art.ip = inst.operand; 
         },
+        InstType::InstJmpIf => {
+            if art.stack_size < 1 {
+                return Trap::StackUnderFlow;
+            }
+
+            let a = art.stack.pop().unwrap();
+            if a == 1 {
+                art.stack_size -= 1;
+                art.ip = inst.operand;
+            } else {
+                art.stack_size += 1;
+            }
+        },
+        InstType::InstEq => {
+            if art.stack_size < 2 {
+                return Trap::StackUnderFlow
+            }
+
+            let a = art.stack.pop().unwrap();
+            let b = art.stack.pop().unwrap();
+            
+            art.stack_size -= 1;
+
+            if a == b {
+                art.stack.push(1);
+            } else {
+                art.stack.push(0);
+            }
+        },
         InstType::InstHalt => {
             art.halt = true;
         },
+        InstType::InstPrintDebug => {
+            if art.stack_size < 1 {
+                return Trap::StackUnderFlow;
+            }
+            art.stack_size -= 1;
+            println!("{:?}", art.stack);
+        },
+        InstType::InstDup => {
+            if art.stack_size <= 0 {
+                return Trap::StackUnderFlow
+            } else if art.stack_size - 1 < inst.operand {
+                return Trap::IllegalInstAcces;
+            }
+
+            art.stack_size += 1;
+            let a = art.stack[inst.operand];
+            art.stack.push(a);
+        }
     }
     art.ip += 1;
     Trap::Ok
@@ -214,16 +298,21 @@ fn main() {
         halt: false,
     };
 
-    art_push_inst(&mut art, inst_push(12));
-    art_push_inst(&mut art, inst_push(12));
+    art_push_inst(&mut art, inst_push(0));
+    art_push_inst(&mut art, inst_push(1));
+    art_push_inst(&mut art, inst_dup(1));
+    art_push_inst(&mut art, inst_dup(0));
     art_push_inst(&mut art, inst_plus());
-    art_push_inst(&mut art, inst_dump());
-    
-    while !art.halt && art.ip < art.program_size {
+    art_push_inst(&mut art, inst_jump(2));
+
+    let mut i = 0;
+
+    while !art.halt && i < EXECUTION_LIMIT {
         let inst = art.program[art.ip].clone();
         let mut trap = art_exec_inst(&mut art, &inst);
+        i += 1;
 
-        if art.ip < 0 || art.ip > art.program_size {
+        if art.ip > art.program_size {
             trap = Trap::IllegalInstAcces;
         }
         
@@ -236,5 +325,6 @@ fn main() {
             }
         }
     }
+    art_dump_stack(&art);
     println!("\nProgram executed successfully");
 }
